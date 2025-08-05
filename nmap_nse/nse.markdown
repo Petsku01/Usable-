@@ -1,4 +1,4 @@
-##NSE Scripts README guide
+## NSE Scripts README guide
 
 
 This guide explains how to use four Nmap Scripting Engine (NSE) scripts designed for stealthy network reconnaissance and vulnerability scanning: cautious-banner-grab.nse, cautious-os-detect.nse, cautious-service-probe.nse, and cautious-vuln-check.nse. These scripts prioritize minimal network footprint and natural timing to avoid detection.
