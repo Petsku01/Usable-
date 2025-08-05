@@ -11,7 +11,7 @@ Performs very cautious banner grabbing with extended delays and minimal probes.
 Uses natural timing patterns to avoid detection.
 ]]
 
-author = "Custom Security Script"
+author = "-pk"
 license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
 categories = {"safe", "discovery", "version"}
 
@@ -22,7 +22,7 @@ action = function(host, port)
   local result = {}
   local socket = nmap.new_socket()
   
-  -- Very conservative timeout
+  -- Very steep timeout
   socket:set_timeout(30000)
   
   local status, err = socket:connect(host, port)
@@ -172,7 +172,7 @@ Performs cautious service detection using minimal, natural-looking probes.
 Designed to blend in with normal network traffic.
 ]]
 
-author = "Custom Security Script"
+author = "-pk"
 license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
 categories = {"safe", "discovery", "version"}
 
