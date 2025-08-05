@@ -1,10 +1,10 @@
-## NSE Scripts README guide
+# NSE Scripts README guide
 
 
 This guide explains how to use four Nmap Scripting Engine (NSE) scripts designed for stealthy network reconnaissance and vulnerability scanning: cautious-banner-grab.nse, cautious-os-detect.nse, cautious-service-probe.nse, and cautious-vuln-check.nse. These scripts prioritize minimal network footprint and natural timing to avoid detection.
 Overview
 
-# Prerequisites
+## Prerequisites
 
 Nmap: Install Nmap (version 7.0 or later recommended) from nmap.org or via package managers:
 Linux: sudo apt install nmap (Debian/Ubuntu) or sudo yum install nmap (RHEL/CentOS).
@@ -16,7 +16,7 @@ Lua: Included with Nmap by default.
 Permissions: Root or sudo privileges are required for certain scan types (e.g., SYN scan with -sS).
 Legal Authorization: Ensure you have explicit permission to scan the target network.
 
-# Installation
+## Installation
 
 Save the Scripts:
 
@@ -45,7 +45,7 @@ Run the following to register the scripts with Nmap:sudo nmap --script-updatedb
 
 
 
-# Usage
+## Usage
 
 Basic Command
 
@@ -90,7 +90,7 @@ Grepable: nmap ... -oG output.grepExample:
 nmap -T1 -sS --script * -oN scan_results.txt <target>
 
 
-# Best Practices
+## Best Practices
 
 Stealth:
 
@@ -114,7 +114,7 @@ No Output: Verify target ports are open with nmap -p <port> <target>. Check for 
 Timeouts: Increase script timeout with --script-timeout 60s.
 Errors: Validate script syntax with a Lua linter or check for missing NSE libraries.
 
-# Notes
+## Notes
 
 These scripts are designed for stealth with random delays and minimal probes, but all network activity may be logged. Use responsibly.
 Customize scripts (e.g., adjust delays or ports) by editing the Lua code, following NSE conventions (see nmap.org/nsedoc/).
