@@ -1,0 +1,593 @@
+-- Script 1: aggressive-recon.nse
+-- Comprehensive reconnaissance with multiple probe techniques
+
+local stdnse = require "stdnse"
+local shortport = require "shortport"
+local socket = require "socket"
+local http = require "http"
+local string = require "string"
+local table = require "table"
+
+description = [[
+Performs aggressive reconnaissance using multiple probe techniques.
+Fast, comprehensive, and thorough information gathering.
+]]
+
+author = "Custom Security Script"
+license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
+categories = {"discovery", "version", "intrusive"}
+
+portrule = shortport.open
+
+action = function(host, port)
+  local results = {}
+  local socket_obj = socket:new()
+  
+  -- Aggressive timeout settings
+  socket_obj:set_timeout(5000)
+  
+  local status, err = socket_obj:connect(host, port)
+  if not status then
+    return nil
+  end
+  
+  -- Service-specific aggressive probing
+  if port.number == 80 or port.number == 8080 then
+    results.service = "http"
+    
+    -- Multiple HTTP methods
+    local methods = {"GET", "POST", "HEAD", "OPTIONS", "TRACE"}
+    for _, method in ipairs(methods) do
+      local probe = method .. " / HTTP/1.1\r\nHost: " .. host.ip .. "\r\nUser-Agent: AggressiveScanner/1.0\r\n\r\n"
+      socket_obj:send(probe)
+      local resp_status, response = socket_obj:receive()
+      if resp_status and response then
+        results[method .. "_response"] = string.sub(response, 1, 200)
+      end
+    end
+    
+    -- Server header extraction
+    local http_resp = http.get(host, port, "/")
+    if http_resp then
+      results.http_status = http_resp.status
+      if http_resp.header then
+        results.server = http_resp.header.server or "unknown"
+        results.x_powered_by = http_resp.header["x-powered-by"]
+        results.set_cookie = http_resp.header["set-cookie"]
+      end
+    end
+    
+  elseif port.number == 443 or port.number == 8443 then
+    results.service = "https"
+    -- SSL/TLS probing would go here
+    
+  elseif port.number == 21 then
+    results.service = "ftp"
+    -- Get banner
+    local banner_status, banner = socket_obj:receive_lines(1)
+    if banner_status then
+      results.banner = banner
+      
+      -- Try multiple FTP commands
+      local ftp_commands = {"SYST", "HELP", "FEAT"}
+      for _, cmd in ipairs(ftp_commands) do
+        socket_obj:send(cmd .. "\r\n")
+        local cmd_status, cmd_resp = socket_obj:receive_lines(1)
+        if cmd_status then
+          results[cmd .. "_response"] = cmd_resp
+        end
+      end
+    end
+    
+  elseif port.number == 22 then
+    results.service = "ssh"
+    local banner_status, banner = socket_obj:receive_lines(1)
+    if banner_status then
+      results.banner = banner
+      results.ssh_version = string.match(banner, "SSH%-([%d%.]+)")
+      results.ssh_software = string.match(banner, "SSH%-[%d%.]+-([^\r\n]+)")
+    end
+    
+  elseif port.number == 25 then
+    results.service = "smtp"
+    local banner_status, banner = socket_obj:receive_lines(1)
+    if banner_status then
+      results.banner = banner
+      
+      -- SMTP enumeration
+      socket_obj:send("EHLO scanner.test\r\n")
+      local ehlo_status, ehlo_resp = socket_obj:receive()
+      if ehlo_status then
+        results.ehlo_response = ehlo_resp
+      end
+    end
+    
+  else
+    -- Generic aggressive probing
+    results.service = "unknown"
+    
+    -- Send various probes
+    local probes = {
+      "\r\n\r\n",
+      "GET / HTTP/1.0\r\n\r\n",
+      "help\r\n",
+      "quit\r\n"
+    }
+    
+    for i, probe in ipairs(probes) do
+      socket_obj:send(probe)
+      local probe_status, probe_resp = socket_obj:receive()
+      if probe_status and probe_resp then
+        results["probe_" .. i] = string.sub(probe_resp, 1, 150)
+      end
+    end
+  end
+  
+  socket_obj:close()
+  
+  if next(results) then
+    return results
+  else
+    return nil
+  end
+end
+
+-----------------------------------------------------------
+
+-- Script 2: aggressive-enum.nse
+-- Aggressive service enumeration and fingerprinting
+
+local stdnse = require "stdnse"
+local shortport = require "shortport"
+local socket = require "socket"
+local http = require "http"
+
+description = [[
+Performs aggressive service enumeration with extensive fingerprinting.
+Attempts to extract maximum information about running services.
+]]
+
+author = "Custom Security Script"
+license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
+categories = {"discovery", "version", "intrusive"}
+
+portrule = shortport.port_or_service({21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 993, 995, 1433, 3306, 3389, 5432, 8080})
+
+action = function(host, port)
+  local results = {}
+  
+  if port.number == 80 or port.number == 8080 then
+    -- Aggressive HTTP enumeration
+    results.service = "http"
+    
+    -- Directory enumeration (common paths)
+    local paths = {"/", "/admin", "/login", "/robots.txt", "/sitemap.xml", "/.htaccess", "/web.config", "/phpinfo.php"}
+    
+    for _, path in ipairs(paths) do
+      local resp = http.get(host, port, path)
+      if resp then
+        results[path] = {
+          status = resp.status,
+          size = string.len(resp.body or ""),
+          server = resp.header and resp.header.server
+        }
+        
+        -- Check for interesting content
+        if resp.body then
+          local body_lower = string.lower(resp.body)
+          if string.match(body_lower, "index of") then
+            results[path].note = "Directory listing"
+          elseif string.match(body_lower, "login") then
+            results[path].note = "Login page detected"
+          elseif string.match(body_lower, "admin") then
+            results[path].note = "Admin interface detected"
+          end
+        end
+      end
+    end
+    
+    -- HTTP method enumeration
+    local methods = {"GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE", "CONNECT", "PATCH"}
+    results.supported_methods = {}
+    
+    for _, method in ipairs(methods) do
+      local socket_obj = socket:new()
+      socket_obj:set_timeout(3000)
+      
+      if socket_obj:connect(host, port) then
+        local request = method .. " / HTTP/1.1\r\nHost: " .. host.ip .. "\r\n\r\n"
+        socket_obj:send(request)
+        local status, response = socket_obj:receive()
+        
+        if status and response then
+          local status_code = string.match(response, "HTTP/[%d%.%s]+ (%d+)")
+          if status_code and status_code ~= "405" then
+            table.insert(results.supported_methods, method)
+          end
+        end
+        socket_obj:close()
+      end
+    end
+    
+  elseif port.number == 21 then
+    -- Aggressive FTP enumeration
+    results.service = "ftp"
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(5000)
+    
+    if socket_obj:connect(host, port) then
+      local banner_status, banner = socket_obj:receive_lines(1)
+      if banner_status then
+        results.banner = banner
+        
+        -- Try anonymous login
+        socket_obj:send("USER anonymous\r\n")
+        local user_status, user_resp = socket_obj:receive_lines(1)
+        results.anonymous_user = user_resp
+        
+        if string.match(user_resp, "331") then
+          socket_obj:send("PASS guest@test.com\r\n")
+          local pass_status, pass_resp = socket_obj:receive_lines(1)
+          results.anonymous_pass = pass_resp
+          
+          if string.match(pass_resp, "230") then
+            results.anonymous_access = "SUCCESS"
+            
+            -- List directories if anonymous access works
+            socket_obj:send("PWD\r\n")
+            local pwd_status, pwd_resp = socket_obj:receive_lines(1)
+            results.current_dir = pwd_resp
+            
+            socket_obj:send("LIST\r\n")
+            local list_status, list_resp = socket_obj:receive()
+            results.directory_listing = list_resp
+          else
+            results.anonymous_access = "FAILED"
+          end
+        end
+      end
+      socket_obj:close()
+    end
+    
+  elseif port.number == 22 then
+    -- Aggressive SSH enumeration
+    results.service = "ssh"
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(5000)
+    
+    if socket_obj:connect(host, port) then
+      local banner_status, banner = socket_obj:receive_lines(1)
+      if banner_status then
+        results.banner = banner
+        results.version = string.match(banner, "SSH%-([^%s]+)")
+        
+        -- Extract detailed version info
+        local version_parts = {}
+        for part in string.gmatch(banner, "([^%-_%s]+)") do
+          table.insert(version_parts, part)
+        end
+        results.version_parts = version_parts
+        
+        -- Check for old/vulnerable versions
+        if string.match(banner, "OpenSSH_[1-6]%.") then
+          results.potential_vulnerability = "Potentially outdated OpenSSH version"
+        end
+      end
+      socket_obj:close()
+    end
+    
+  elseif port.number == 445 then
+    -- SMB enumeration placeholder
+    results.service = "smb"
+    results.note = "SMB service detected - use specialized SMB scripts"
+    
+  elseif port.number == 3306 then
+    -- MySQL enumeration
+    results.service = "mysql"
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(5000)
+    
+    if socket_obj:connect(host, port) then
+      local handshake_status, handshake = socket_obj:receive()
+      if handshake_status and handshake then
+        -- Parse MySQL handshake packet
+        results.handshake_received = "YES"
+        results.handshake_size = string.len(handshake)
+        
+        -- Try to extract version info from handshake
+        local version_match = string.match(handshake, "([%d%.%-]+)")
+        if version_match then
+          results.mysql_version = version_match
+        end
+      end
+      socket_obj:close()
+    end
+  end
+  
+  if next(results) then
+    return results
+  else
+    return nil
+  end
+end
+
+-----------------------------------------------------------
+
+-- Script 3: aggressive-vuln-scan.nse
+-- Aggressive vulnerability detection
+
+local stdnse = require "stdnse"
+local shortport = require "shortport"
+local socket = require "socket"
+local http = require "http"
+
+description = [[
+Performs aggressive vulnerability scanning with active probes.
+Tests for common misconfigurations and security issues.
+]]
+
+author = "Custom Security Script"
+license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
+categories = {"vuln", "intrusive", "exploit"}
+
+portrule = shortport.open
+
+action = function(host, port)
+  local results = {}
+  local vulnerabilities = {}
+  
+  if port.number == 80 or port.number == 8080 then
+    -- HTTP vulnerability checks
+    
+    -- Directory traversal test
+    local traversal_paths = {"/../../../etc/passwd", "/..\\..\\..\\windows\\system32\\drivers\\etc\\hosts"}
+    for _, path in ipairs(traversal_paths) do
+      local resp = http.get(host, port, path)
+      if resp and resp.status == 200 and resp.body then
+        if string.match(resp.body, "root:") or string.match(resp.body, "localhost") then
+          table.insert(vulnerabilities, "Possible directory traversal: " .. path)
+        end
+      end
+    end
+    
+    -- SQL injection test (basic)
+    local sqli_paths = {"/?id=1'", "/?id=1 OR 1=1", "/login.php?user=admin'--"}
+    for _, path in ipairs(sqli_paths) do
+      local resp = http.get(host, port, path)
+      if resp and resp.body then
+        local body_lower = string.lower(resp.body)
+        if string.match(body_lower, "mysql") or string.match(body_lower, "sql syntax") or 
+           string.match(body_lower, "ora%-") or string.match(body_lower, "postgresql") then
+          table.insert(vulnerabilities, "Possible SQL injection: " .. path)
+        end
+      end
+    end
+    
+    -- XSS test (basic)
+    local xss_payload = "<script>alert('xss')</script>"
+    local resp = http.get(host, port, "/?search=" .. xss_payload)
+    if resp and resp.body and string.match(resp.body, "<script>alert") then
+      table.insert(vulnerabilities, "Possible XSS vulnerability")
+    end
+    
+    -- Check for sensitive files
+    local sensitive_files = {
+      "/backup.sql", "/config.php", "/phpinfo.php", "/test.php",
+      "/.env", "/wp-config.php", "/web.config", "/.htaccess",
+      "/admin.php", "/login.php", "/database.sql"
+    }
+    
+    for _, file in ipairs(sensitive_files) do
+      local resp = http.get(host, port, file)
+      if resp and resp.status == 200 then
+        table.insert(vulnerabilities, "Sensitive file accessible: " .. file)
+      end
+    end
+    
+  elseif port.number == 21 then
+    -- FTP vulnerability checks
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(5000)
+    
+    if socket_obj:connect(host, port) then
+      local banner_status, banner = socket_obj:receive_lines(1)
+      
+      -- Check for anonymous FTP
+      socket_obj:send("USER anonymous\r\n")
+      local user_status, user_resp = socket_obj:receive_lines(1)
+      
+      if string.match(user_resp, "331") then
+        socket_obj:send("PASS test@test.com\r\n")
+        local pass_status, pass_resp = socket_obj:receive_lines(1)
+        
+        if string.match(pass_resp, "230") then
+          table.insert(vulnerabilities, "Anonymous FTP access enabled")
+          
+          -- Check if anonymous can write
+          socket_obj:send("MKD testdir\r\n")
+          local mkd_status, mkd_resp = socket_obj:receive_lines(1)
+          if string.match(mkd_resp, "257") then
+            table.insert(vulnerabilities, "Anonymous FTP write access enabled")
+            socket_obj:send("RMD testdir\r\n")
+            socket_obj:receive_lines(1)
+          end
+        end
+      end
+      socket_obj:close()
+    end
+    
+  elseif port.number == 22 then
+    -- SSH vulnerability checks
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(5000)
+    
+    if socket_obj:connect(host, port) then
+      local banner_status, banner = socket_obj:receive_lines(1)
+      
+      if banner_status then
+        -- Check for old SSH versions
+        if string.match(banner, "SSH%-1%.") then
+          table.insert(vulnerabilities, "SSH Protocol 1.x enabled (deprecated)")
+        end
+        
+        -- Check for specific vulnerable versions
+        if string.match(banner, "OpenSSH_[1-6]%.[0-9]") then
+          table.insert(vulnerabilities, "Potentially vulnerable SSH version: " .. banner)
+        end
+      end
+      socket_obj:close()
+    end
+    
+  elseif port.number == 23 then
+    -- Telnet vulnerability
+    table.insert(vulnerabilities, "Telnet service detected (insecure protocol)")
+    
+  elseif port.number == 53 then
+    -- DNS vulnerability checks
+    results.service = "dns"
+    table.insert(vulnerabilities, "DNS service exposed - check for zone transfers")
+  end
+  
+  -- Add more port-specific checks as needed
+  
+  if #vulnerabilities > 0 then
+    results.vulnerabilities_found = vulnerabilities
+    results.risk_level = "HIGH"
+    results.recommendation = "Immediate security review recommended"
+  else
+    results.status = "No obvious vulnerabilities detected in active scan"
+    results.risk_level = "LOW"
+  end
+  
+  return results
+end
+
+-----------------------------------------------------------
+
+-- Script 4: aggressive-os-detect.nse
+-- Aggressive OS detection using multiple techniques
+
+local stdnse = require "stdnse"
+local shortport = require "shortport"
+local socket = require "socket"
+
+description = [[
+Performs aggressive OS detection using multiple fingerprinting techniques.
+Fast and comprehensive operating system identification.
+]]
+
+author = "Custom Security Script"
+license = "Same as Nmap--See https://nmap.org/book/man-legal.html"
+categories = {"discovery", "intrusive"}
+
+portrule = shortport.open
+
+action = function(host, port)
+  local results = {}
+  local os_hints = {}
+  
+  -- TCP timing-based detection
+  local timings = {}
+  for i = 1, 5 do
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(2000)
+    
+    local start_time = stdnse.clock_ms()
+    local status = socket_obj:connect(host, port)
+    local connect_time = stdnse.clock_ms() - start_time
+    
+    if status then
+      table.insert(timings, connect_time)
+      socket_obj:close()
+    end
+  end
+  
+  if #timings >= 3 then
+    local avg_time = 0
+    for _, time in ipairs(timings) do
+      avg_time = avg_time + time
+    end
+    avg_time = avg_time / #timings
+    
+    results.avg_connect_time = avg_time
+    
+    -- OS classification based on timing
+    if avg_time < 10 then
+      table.insert(os_hints, "Linux/Unix (very fast response)")
+    elseif avg_time < 50 then
+      table.insert(os_hints, "Linux/Unix (fast response)")
+    elseif avg_time > 200 then
+      table.insert(os_hints, "Windows (slower TCP stack)")
+    end
+  end
+  
+  -- Service-based OS detection
+  if port.number == 22 then
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(5000)
+    
+    if socket_obj:connect(host, port) then
+      local banner_status, banner = socket_obj:receive_lines(1)
+      if banner_status and banner then
+        if string.match(banner, "Ubuntu") then
+          table.insert(os_hints, "Ubuntu Linux")
+        elseif string.match(banner, "Debian") then
+          table.insert(os_hints, "Debian Linux")
+        elseif string.match(banner, "CentOS") then
+          table.insert(os_hints, "CentOS Linux")
+        elseif string.match(banner, "Red Hat") then
+          table.insert(os_hints, "Red Hat Linux")
+        elseif string.match(banner, "FreeBSD") then
+          table.insert(os_hints, "FreeBSD")
+        end
+      end
+      socket_obj:close()
+    end
+    
+  elseif port.number == 80 then
+    local socket_obj = socket:new()
+    socket_obj:set_timeout(3000)
+    
+    if socket_obj:connect(host, port) then
+      socket_obj:send("HEAD / HTTP/1.0\r\n\r\n")
+      local resp_status, response = socket_obj:receive()
+      
+      if resp_status and response then
+        if string.match(response, "IIS") then
+          table.insert(os_hints, "Windows (IIS detected)")
+        elseif string.match(response, "Apache.*Unix") then
+          table.insert(os_hints, "Unix/Linux (Apache)")
+        elseif string.match(response, "nginx") then
+          table.insert(os_hints, "Linux (nginx)")
+        end
+      end
+      socket_obj:close()
+    end
+  end
+  
+  -- TTL-based detection (if we can extract it)
+  results.os_fingerprint_hints = os_hints
+  
+  if #os_hints > 0 then
+    results.likely_os = os_hints[1]  -- Take the first/most confident guess
+  else
+    results.likely_os = "Unknown"
+  end
+  
+  return results
+end
+
+-----------------------------------------------------------
+-- Usage Examples:
+
+-- To use these aggressive scripts:
+-- 1. Save each script to a .nse file
+-- 2. Run with: nmap --script aggressive-recon,aggressive-enum target
+-- 3. For maximum speed: -T5 -n --min-rate 1000
+-- 4. For comprehensive scan: --script aggressive-recon,aggressive-enum,aggressive-vuln-scan,aggressive-os-detect
+
+-- Example command for maximum aggression:
+-- nmap -T5 -n --min-rate 1000 --max-retries 3 --script aggressive-recon,aggressive-enum,aggressive-vuln-scan target.com
+
+-- WARNING: These scripts are designed for authorized testing only.
+-- Use responsibly and only on systems you own or have explicit permission to test.
