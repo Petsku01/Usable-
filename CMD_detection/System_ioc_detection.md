@@ -37,7 +37,7 @@ wmic process get processid,parentprocessid,name,commandline
 
 ### High CPU Usage Processes
 ```cmd
-wmic process get processid,name,percentprocessortime,workingsetsize
+wmic process get processid,name,workingsetsize,percentprocessortime
 ```
 
 ## Service Monitoring
@@ -292,7 +292,7 @@ wevtutil qe Security /q:"*[System[(EventID=4688)]]" /c:10 /rd:true /f:text
 
 ## Performance and Resource Monitoring
 
-### System Performance
+### Performance Monitoring
 ```cmd
 typeperf "\Processor(_Total)\% Processor Time" -sc 5
 ```
@@ -358,12 +358,12 @@ echo === Process Monitor ===
 echo Time: %date% %time%
 echo.
 
-echo === New Processes (last 5 minutes) ===
-wmic process where "CreationDate > '%date:~6,4%%date:~3,2%%date:~0,2%000000.000000-000'" get ProcessId,Name,CommandLine,CreationDate
+echo === Current Processes ===
+tasklist | findstr /I "powershell\|cmd\|rundll32\|regsvr32\|mshta\|certutil\|bitsadmin"
 echo.
 
-echo === High CPU Processes ===
-wmic process get processid,name,percentprocessortime | sort /r /+3 | head -10
+echo === High Memory Processes ===
+wmic process get processid,name,workingsetsize | sort /r /+3
 echo.
 
 timeout /t 300 /nobreak > nul
@@ -566,4 +566,3 @@ REM Check for staging directories
 dir c:\temp /s
 dir c:\users\public /s
 ```
-
